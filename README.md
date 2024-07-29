@@ -2,6 +2,8 @@
 
 A lightweight Go SDK for sending, receiving, and acknowledging messages in [Sequin streams](https://github.com/sequinstream/sequin). For easy development and testing, it also comes with helpful methods for managing the lifecycle of streams and consumers.
 
+See the [docs on pkg.go.dev](https://pkg.go.dev/github.com/sequinstream/sequin-go@v0.1.0#section-documentation).
+
 ## Installing
 
 Install the library:
