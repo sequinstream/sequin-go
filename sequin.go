@@ -1,4 +1,4 @@
-// Sequin provides a lightweight Go SDK for sending, receiving, and acknowledging messages in Sequin (https://github.com/sequinstream/sequin).
+// Sequin provides a  Go SDK for sending, receiving, and acknowledging messages in Sequin (https://github.com/sequinstream/sequin).
 
 package sequin
 
@@ -8,30 +8,87 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
+
+type SequinClientInterface interface {
+	CreateStream(name string, options *CreateStreamOptions) (*Stream, error)
+	GetStream(id string) (*Stream, error)
+	UpdateStream(id, name string) (*Stream, error)
+	DeleteStream(id string) (*DeleteSuccess, error)
+	SendMessage(streamIDOrName string, key string, data string) (*SendMessageResult, error)
+	SendMessages(streamIDOrName string, messages []Message) (*SendMessageResult, error)
+	ReceiveMessage(streamIDOrName string, consumerIDOrName string) (*ReceivedMessage, error)
+	ReceiveMessages(streamIDOrName string, consumerIDOrName string, options *ReceiveMessagesOptions) ([]ReceivedMessage, error)
+	AckMessage(streamIDOrName string, consumerIDOrName string, ackID string) (*AckSuccess, error)
+	AckMessages(streamIDOrName string, consumerIDOrName string, ackIDs []string) (*AckSuccess, error)
+	NackMessage(streamIDOrName string, consumerIDOrName string, ackID string) (*NackSuccess, error)
+	NackMessages(streamIDOrName string, consumerIDOrName string, ackIDs []string) (*NackSuccess, error)
+	CreateConsumer(streamIDOrName string, name string, filterKeyPattern string, options *CreateConsumerOptions) (*Consumer, error)
+	GetConsumer(streamIDOrName string, consumerIDOrName string) (*Consumer, error)
+	UpdateConsumer(streamIDOrName string, consumerIDOrName string, options *UpdateConsumerOptions) (*Consumer, error)
+	DeleteConsumer(streamIDOrName string, consumerIDOrName string) (*DeleteSuccess, error)
+	ListConsumers(streamIDOrName string) ([]Consumer, error)
+	CreateWebhook(options *CreateWebhookOptions) (*Webhook, error)
+	GetWebhook(webhookIDOrName string) (*Webhook, error)
+	UpdateWebhook(webhookIDOrName string, options *UpdateWebhookOptions) (*Webhook, error)
+	DeleteWebhook(webhookIDOrName string) (*DeleteSuccess, error)
+	ListWebhooks() ([]Webhook, error)
+	CreatePostgresDatabase(options *CreatePostgresDatabaseOptions) (*PostgresDatabase, error)
+	GetPostgresDatabase(id string) (*PostgresDatabase, error)
+	UpdatePostgresDatabase(id string, options *UpdatePostgresDatabaseOptions) (*PostgresDatabase, error)
+	DeletePostgresDatabase(id string) (*DeleteSuccess, error)
+	ListPostgresDatabases() ([]PostgresDatabase, error)
+	TestPostgresDatabaseConnection(id string) (*TestConnectionResult, error)
+	SetupPostgresDatabaseReplication(id string, options *SetupReplicationOptions) (*SetupReplicationResult, error)
+	ListPostgresDatabaseSchemas(id string) ([]string, error)
+	ListPostgresDatabaseTables(id string, schema string) ([]string, error)
+	CreatePostgresReplication(options *CreatePostgresReplicationOptions) (*PostgresReplication, error)
+	GetPostgresReplication(id string) (*PostgresReplication, error)
+	UpdatePostgresReplication(id string, options *UpdatePostgresReplicationOptions) (*PostgresReplication, error)
+	DeletePostgresReplication(id string) (*DeleteSuccess, error)
+	ListPostgresReplications() ([]PostgresReplication, error)
+	CreatePostgresReplicationBackfills(id string, tables []map[string]string) ([]string, error)
+	CreateHttpEndpoint(options *CreateHttpEndpointOptions) (*HttpEndpoint, error)
+	GetHttpEndpoint(id string) (*HttpEndpoint, error)
+	UpdateHttpEndpoint(id string, options *UpdateHttpEndpointOptions) (*HttpEndpoint, error)
+	DeleteHttpEndpoint(id string) (*DeleteSuccess, error)
+	ListHttpEndpoints() ([]HttpEndpoint, error)
+}
 
 // Client represents a Sequin client for interacting with the Sequin API.
 type Client struct {
-	baseURL    string       // Base URL for the Sequin API.
-	httpClient *http.Client // HTTP client for making API requests.
+	baseURL    string
+	apiKey     string
+	httpClient *http.Client
+}
+
+func NewClient(baseURL string, opts ...ClientOption) *Client {
+	if baseURL == "" {
+		baseURL = "http://localhost:7376"
+	}
+	c := &Client{
+		baseURL:    baseURL,
+		httpClient: &http.Client{},
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+type ClientOption func(*Client)
+
+func WithAPIKey(apiKey string) ClientOption {
+	return func(c *Client) {
+		c.apiKey = apiKey
+	}
 }
 
 // DeleteSuccess represents a successful deletion operation.
 type DeleteSuccess struct {
 	ID      string `json:"id"`      // ID of the deleted resource.
 	Deleted bool   `json:"deleted"` // Indicates if the deletion was successful.
-}
-
-// NewClient creates a new Sequin client with the given base URL.
-// If no base URL is provided, it defaults to "http://localhost:7376".
-func NewClient(baseURL string) *Client {
-	if baseURL == "" {
-		baseURL = "http://localhost:7376"
-	}
-	return &Client{
-		baseURL:    baseURL,
-		httpClient: &http.Client{},
-	}
 }
 
 // SendMessage [sends](https://github.com/sequinstream/sequin?tab=readme-ov-file#sending-messages) a single message to a stream.
@@ -116,120 +173,61 @@ func (c *Client) NackMessages(streamIDOrName string, consumerIDOrName string, ac
 	return &result, err
 }
 
-// CreateStream creates a new stream with the given name and options.
-func (c *Client) CreateStream(streamName string, options ...*CreateStreamOptions) (*Stream, error) {
-	body := map[string]interface{}{"name": streamName}
-
-	if len(options) > 0 && options[0] != nil {
-		opts := options[0]
-		body["one_message_per_key"] = opts.OneMessagePerKey
-		body["process_unmodified"] = opts.ProcessUnmodified
-		body["max_storage_gb"] = opts.MaxStorageGB
-		body["retain_up_to"] = opts.RetainUpTo
-		body["retain_at_least"] = opts.RetainAtLeast
-	}
-
-	responseBody, err := c.request("/api/streams", "POST", body)
-	if err != nil {
-		return nil, err
-	}
-
-	var stream Stream
-	err = json.Unmarshal(responseBody, &stream)
-	return &stream, err
-}
-
-// DeleteStream deletes a stream by its ID or name.
-func (c *Client) DeleteStream(streamIDOrName string) (*DeleteSuccess, error) {
-	responseBody, err := c.request(fmt.Sprintf("/api/streams/%s", streamIDOrName), "DELETE", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result DeleteSuccess
-	err = json.Unmarshal(responseBody, &result)
-	return &result, err
-}
-
-// CreateConsumer creates a new consumer for a stream.
-func (c *Client) CreateConsumer(streamIDOrName string, consumerName string, consumerFilter string, options ...*CreateConsumerOptions) (*Consumer, error) {
-	body := map[string]interface{}{
-		"name":               consumerName,
-		"filter_key_pattern": consumerFilter,
-		"kind":               "pull",
-	}
-	if len(options) > 0 && options[0] != nil {
-		opts := options[0]
-		body["ack_wait_ms"] = opts.AckWaitMS
-		body["max_ack_pending"] = opts.MaxAckPending
-		body["max_deliver"] = opts.MaxDeliver
-	}
-	responseBody, err := c.request(fmt.Sprintf("/api/streams/%s/consumers", streamIDOrName), "POST", body)
-	if err != nil {
-		return nil, err
-	}
-
-	var consumer Consumer
-	err = json.Unmarshal(responseBody, &consumer)
-	return &consumer, err
-}
-
-// DeleteConsumer deletes a consumer from a stream.
-func (c *Client) DeleteConsumer(streamIDOrName string, consumerIDOrName string) (*DeleteSuccess, error) {
-	responseBody, err := c.request(fmt.Sprintf("/api/streams/%s/consumers/%s", streamIDOrName, consumerIDOrName), "DELETE", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var result DeleteSuccess
-	err = json.Unmarshal(responseBody, &result)
-	return &result, err
-}
-
 // request is an internal method for making HTTP requests to the Sequin API.
-func (c *Client) request(endpoint string, method string, body interface{}) ([]byte, error) {
+func (c *Client) request(endpoint, method string, body interface{}) ([]byte, error) {
 	url := c.baseURL + endpoint
 	var req *http.Request
 	var err error
 
 	if body != nil {
-		jsonBody, err := json.Marshal(body)
+		var jsonBody []byte
+		jsonBody, err = json.Marshal(body)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
-
 		req, err = http.NewRequest(method, url, bytes.NewBuffer(jsonBody))
 	} else {
 		req, err = http.NewRequest(method, url, nil)
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if resp.StatusCode >= 400 {
 		var errorResponse struct {
-			Summary string `json:"summary"`
+			Summary          string                 `json:"summary"`
+			ValidationErrors map[string]interface{} `json:"validation_errors"`
+			Code             string                 `json:"code"`
 		}
-		json.Unmarshal(responseBody, &errorResponse)
-		return nil, fmt.Errorf("API error: %s", errorResponse.Summary)
+		if err := json.Unmarshal(responseBody, &errorResponse); err == nil {
+			if errorResponse.ValidationErrors != nil {
+				return nil, &ValidationError{
+					Summary:          errorResponse.Summary,
+					ValidationErrors: errorResponse.ValidationErrors,
+					Code:             errorResponse.Code,
+				}
+			}
+			return nil, fmt.Errorf("API error: %s", errorResponse.Summary)
+		}
+		return nil, fmt.Errorf("API error: status code %d", resp.StatusCode)
 	}
 
-	// Check if the response is wrapped in a data envelope
 	var envelope struct {
 		Data json.RawMessage `json:"data"`
 	}
@@ -238,4 +236,52 @@ func (c *Client) request(endpoint string, method string, body interface{}) ([]by
 	}
 
 	return responseBody, nil
+}
+
+// ValidationError represents an error that occurs during API validation
+type ValidationError struct {
+	Summary          string                 `json:"summary"`
+	ValidationErrors map[string]interface{} `json:"validation_errors"`
+	Code             string                 `json:"code"`
+}
+
+// Error implements the error interface for ValidationError
+func (ve *ValidationError) Error() string {
+	var parts []string
+	if ve.Summary != "" {
+		parts = append(parts, ve.Summary)
+	}
+	if len(ve.ValidationErrors) > 0 {
+		for key, value := range ve.ValidationErrors {
+			switch v := value.(type) {
+			case []interface{}:
+				for _, msg := range v {
+					parts = append(parts, fmt.Sprintf("%s: %v", key, msg))
+				}
+			case string:
+				parts = append(parts, fmt.Sprintf("%s: %s", key, v))
+			default:
+				parts = append(parts, fmt.Sprintf("%s: %v", key, v))
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return "An unknown validation error occurred"
+	}
+	return strings.Join(parts, "; ")
+}
+
+// IntPtr returns a pointer to the given int value.
+func IntPtr(i int) *int {
+	return &i
+}
+
+// StringPtr returns a pointer to the given string value.
+func StringPtr(s string) *string {
+	return &s
+}
+
+// BoolPtr returns a pointer to the given bool value.
+func BoolPtr(b bool) *bool {
+	return &b
 }

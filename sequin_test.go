@@ -18,7 +18,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("CreateStream should create a new stream", func(t *testing.T) {
-		stream, err := client.CreateStream(testStreamName)
+		stream, err := client.CreateStream(testStreamName, nil)
 		if err != nil {
 			t.Fatalf("Error creating stream: %v", err)
 		}
@@ -58,7 +58,7 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("CreateConsumer should create a new consumer", func(t *testing.T) {
-		consumer, err := client.CreateConsumer(testStreamName, testConsumerName, "test.>")
+		consumer, err := client.CreateConsumer(testStreamName, testConsumerName, "test.>", nil)
 		if err != nil {
 			t.Errorf("Error creating consumer: %v", err)
 		}

@@ -31,5 +31,5 @@ type SendMessageResult struct {
 
 // ReceiveMessagesOptions represents options for receiving messages.
 type ReceiveMessagesOptions struct {
-	BatchSize int `json:"batch_size"` // Number of messages to receive in a batch.
+	BatchSize int `json:"batch_size,omitempty"` // Number of messages to receive in a batch.
 }
