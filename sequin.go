@@ -1,287 +1,194 @@
-// Sequin provides a  Go SDK for sending, receiving, and acknowledging messages in Sequin (https://github.com/sequinstream/sequin).
-
 package sequin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"strings"
+	"time"
 )
 
-type SequinClientInterface interface {
-	CreateStream(name string, options *CreateStreamOptions) (*Stream, error)
-	GetStream(id string) (*Stream, error)
-	UpdateStream(id, name string) (*Stream, error)
-	DeleteStream(id string) (*DeleteSuccess, error)
-	SendMessage(streamIDOrName string, key string, data string) (*SendMessageResult, error)
-	SendMessages(streamIDOrName string, messages []Message) (*SendMessageResult, error)
-	ReceiveMessage(streamIDOrName string, consumerIDOrName string) (*ReceivedMessage, error)
-	ReceiveMessages(streamIDOrName string, consumerIDOrName string, options *ReceiveMessagesOptions) ([]ReceivedMessage, error)
-	AckMessage(streamIDOrName string, consumerIDOrName string, ackID string) (*AckSuccess, error)
-	AckMessages(streamIDOrName string, consumerIDOrName string, ackIDs []string) (*AckSuccess, error)
-	NackMessage(streamIDOrName string, consumerIDOrName string, ackID string) (*NackSuccess, error)
-	NackMessages(streamIDOrName string, consumerIDOrName string, ackIDs []string) (*NackSuccess, error)
-	CreateConsumer(streamIDOrName string, name string, filterKeyPattern string, options *CreateConsumerOptions) (*Consumer, error)
-	GetConsumer(streamIDOrName string, consumerIDOrName string) (*Consumer, error)
-	UpdateConsumer(streamIDOrName string, consumerIDOrName string, options *UpdateConsumerOptions) (*Consumer, error)
-	DeleteConsumer(streamIDOrName string, consumerIDOrName string) (*DeleteSuccess, error)
-	ListConsumers(streamIDOrName string) ([]Consumer, error)
-	CreateWebhook(options *CreateWebhookOptions) (*Webhook, error)
-	GetWebhook(webhookIDOrName string) (*Webhook, error)
-	UpdateWebhook(webhookIDOrName string, options *UpdateWebhookOptions) (*Webhook, error)
-	DeleteWebhook(webhookIDOrName string) (*DeleteSuccess, error)
-	ListWebhooks() ([]Webhook, error)
-	CreatePostgresDatabase(options *CreatePostgresDatabaseOptions) (*PostgresDatabase, error)
-	GetPostgresDatabase(id string) (*PostgresDatabase, error)
-	UpdatePostgresDatabase(id string, options *UpdatePostgresDatabaseOptions) (*PostgresDatabase, error)
-	DeletePostgresDatabase(id string) (*DeleteSuccess, error)
-	ListPostgresDatabases() ([]PostgresDatabase, error)
-	TestPostgresDatabaseConnection(id string) (*TestConnectionResult, error)
-	SetupPostgresDatabaseReplication(id string, options *SetupReplicationOptions) (*SetupReplicationResult, error)
-	ListPostgresDatabaseSchemas(id string) ([]string, error)
-	ListPostgresDatabaseTables(id string, schema string) ([]string, error)
-	CreatePostgresReplication(options *CreatePostgresReplicationOptions) (*PostgresReplication, error)
-	GetPostgresReplication(id string) (*PostgresReplication, error)
-	UpdatePostgresReplication(id string, options *UpdatePostgresReplicationOptions) (*PostgresReplication, error)
-	DeletePostgresReplication(id string) (*DeleteSuccess, error)
-	ListPostgresReplications() ([]PostgresReplication, error)
-	CreatePostgresReplicationBackfills(id string, tables []map[string]string) ([]string, error)
-	CreateHttpEndpoint(options *CreateHttpEndpointOptions) (*HttpEndpoint, error)
-	GetHttpEndpoint(id string) (*HttpEndpoint, error)
-	UpdateHttpEndpoint(id string, options *UpdateHttpEndpointOptions) (*HttpEndpoint, error)
-	DeleteHttpEndpoint(id string) (*DeleteSuccess, error)
-	ListHttpEndpoints() ([]HttpEndpoint, error)
+// SequinClient defines the interface for Sequin client operations
+type SequinClient interface {
+	Receive(ctx context.Context, consumerGroupID string, params *ReceiveParams) ([]Message, error)
+	Ack(ctx context.Context, consumerGroupID string, ackIDs []string) error
+	Nack(ctx context.Context, consumerGroupID string, ackIDs []string) error
 }
 
-// Client represents a Sequin client for interacting with the Sequin API.
+// Client represents a Sequin client
 type Client struct {
 	baseURL    string
-	apiKey     string
+	token      string
 	httpClient *http.Client
 }
 
-func NewClient(baseURL string, opts ...ClientOption) *Client {
-	if baseURL == "" {
-		baseURL = "http://localhost:7376"
-	}
-	c := &Client{
-		baseURL:    baseURL,
-		httpClient: &http.Client{},
-	}
-	for _, opt := range opts {
-		opt(c)
-	}
-	return c
+// Ensure Client implements SequinClient interface
+var _ SequinClient = (*Client)(nil)
+
+// ClientOptions configures the client behavior
+type ClientOptions struct {
+	BaseURL    string        // API base URL, defaults to "https://api.sequinstream.com/api"
+	HTTPClient *http.Client  // Custom HTTP client, optional
+	Timeout    time.Duration // HTTP client timeout, defaults to 30s
 }
 
-type ClientOption func(*Client)
-
-func WithAPIKey(apiKey string) ClientOption {
-	return func(c *Client) {
-		c.apiKey = apiKey
-	}
-}
-
-// DeleteSuccess represents a successful deletion operation.
-type DeleteSuccess struct {
-	ID      string `json:"id"`      // ID of the deleted resource.
-	Deleted bool   `json:"deleted"` // Indicates if the deletion was successful.
-}
-
-// SendMessage [sends](https://github.com/sequinstream/sequin?tab=readme-ov-file#sending-messages) a single message to a stream.
-func (c *Client) SendMessage(streamIDOrName string, key string, data string) (*SendMessageResult, error) {
-	return c.SendMessages(streamIDOrName, []Message{{Key: key, Data: data}})
-}
-
-// SendMessages [sends](https://github.com/sequinstream/sequin?tab=readme-ov-file#sending-messages) a batch of messages to a stream. SendMessages is all or nothing. Either all the messages are successfully sent, or none of the messages are sent.
-func (c *Client) SendMessages(streamIDOrName string, messages []Message) (*SendMessageResult, error) {
-	body := map[string]interface{}{"messages": messages}
-	responseBody, err := c.request(fmt.Sprintf("/api/streams/%s/messages", streamIDOrName), "POST", body)
-	if err != nil {
-		return nil, err
+// NewClient creates a new Sequin client
+func NewClient(token string, opts *ClientOptions) *Client {
+	if opts == nil {
+		opts = &ClientOptions{}
 	}
 
-	var result SendMessageResult
-	err = json.Unmarshal(responseBody, &result)
-	return &result, err
-}
-
-// ReceiveMessage receives a single message from a consumer.
-func (c *Client) ReceiveMessage(streamIDOrName string, consumerIDOrName string) (*ReceivedMessage, error) {
-	messages, err := c.ReceiveMessages(streamIDOrName, consumerIDOrName, &ReceiveMessagesOptions{BatchSize: 1})
-	if err != nil {
-		return nil, err
-	}
-	if len(messages) > 0 {
-		return &messages[0], nil
-	}
-	return nil, nil
-}
-
-// ReceiveMessages receives a batch of messages from a consumer. Defaults to a batch of `10` messages:
-func (c *Client) ReceiveMessages(streamIDOrName string, consumerIDOrName string, options *ReceiveMessagesOptions) ([]ReceivedMessage, error) {
-	batchSize := 10
-	if options != nil && options.BatchSize > 0 {
-		batchSize = options.BatchSize
-	}
-	responseBody, err := c.request(fmt.Sprintf("/api/streams/%s/consumers/%s/receive?batch_size=%d", streamIDOrName, consumerIDOrName, batchSize), "GET", nil)
-	if err != nil {
-		return nil, err
+	if opts.BaseURL == "" {
+		opts.BaseURL = "https://api.sequinstream.com/api"
 	}
 
-	var messages []ReceivedMessage
-	err = json.Unmarshal(responseBody, &messages)
-	return messages, err
-}
-
-// AckMessage [acknowledge](https://github.com/sequinstream/sequin?tab=readme-ov-file#acking-messages) a single message.
-func (c *Client) AckMessage(streamIDOrName string, consumerIDOrName string, ackID string) (*AckSuccess, error) {
-	return c.AckMessages(streamIDOrName, consumerIDOrName, []string{ackID})
-}
-
-// AckMessages [acknowledge](https://github.com/sequinstream/sequin?tab=readme-ov-file#acking-messages) a batch of messages. AckMessages is all or nothing. Either all the messages are successfully acknowledged, or none of the messages are acknowledged.
-func (c *Client) AckMessages(streamIDOrName string, consumerIDOrName string, ackIDs []string) (*AckSuccess, error) {
-	body := map[string]interface{}{"ack_ids": ackIDs}
-	responseBody, err := c.request(fmt.Sprintf("/api/streams/%s/consumers/%s/ack", streamIDOrName, consumerIDOrName), "POST", body)
-	if err != nil {
-		return nil, err
-	}
-
-	var result AckSuccess
-	err = json.Unmarshal(responseBody, &result)
-	return &result, err
-}
-
-// NackMessage [negatively acknowledges](https://github.com/sequinstream/sequin?tab=readme-ov-file#nacking-messages) a single message.
-func (c *Client) NackMessage(streamIDOrName string, consumerIDOrName string, ackID string) (*NackSuccess, error) {
-	return c.NackMessages(streamIDOrName, consumerIDOrName, []string{ackID})
-}
-
-// NackMessages [negatively acknowledges](https://github.com/sequinstream/sequin?tab=readme-ov-file#nacking-messages) a batch of messages. NackMessages is all or nothing. Either all the messages are successfully negatively acknowledged, or none of the messages are negatively acknowledged.
-func (c *Client) NackMessages(streamIDOrName string, consumerIDOrName string, ackIDs []string) (*NackSuccess, error) {
-	body := map[string]interface{}{"ack_ids": ackIDs}
-	responseBody, err := c.request(fmt.Sprintf("/api/streams/%s/consumers/%s/nack", streamIDOrName, consumerIDOrName), "POST", body)
-	if err != nil {
-		return nil, err
-	}
-
-	var result NackSuccess
-	err = json.Unmarshal(responseBody, &result)
-	return &result, err
-}
-
-// request is an internal method for making HTTP requests to the Sequin API.
-func (c *Client) request(endpoint, method string, body interface{}) ([]byte, error) {
-	url := c.baseURL + endpoint
-	var req *http.Request
-	var err error
-
-	if body != nil {
-		var jsonBody []byte
-		jsonBody, err = json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	if opts.HTTPClient == nil {
+		timeout := opts.Timeout
+		if timeout == 0 {
+			timeout = 30 * time.Second
 		}
-		req, err = http.NewRequest(method, url, bytes.NewBuffer(jsonBody))
-	} else {
-		req, err = http.NewRequest(method, url, nil)
+		opts.HTTPClient = &http.Client{
+			Timeout: timeout,
+		}
 	}
 
+	return &Client{
+		baseURL:    opts.BaseURL,
+		token:      token,
+		httpClient: opts.HTTPClient,
+	}
+}
+
+// ReceiveResponse represents the response from the receive endpoint
+type ReceiveResponse struct {
+	Data []struct {
+		AckID string `json:"ack_id"`
+		Data  struct {
+			Record json.RawMessage `json:"record"`
+		} `json:"data"`
+	} `json:"data"`
+}
+
+// ReceiveParams represents parameters for the receive request
+type ReceiveParams struct {
+	BatchSize int `json:"batch_size,omitempty"`
+	WaitFor   int `json:"wait_for,omitempty"` // milliseconds
+}
+
+// Receive fetches messages from a consumer
+func (c *Client) Receive(ctx context.Context, consumerGroupID string, params *ReceiveParams) ([]Message, error) {
+	url := fmt.Sprintf("%s/api/http_pull_consumers/%s/receive", c.baseURL, consumerGroupID)
+
+	var body []byte
+	var err error
+	if params != nil {
+		body, err = json.Marshal(params)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling receive params: %w", err)
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
+	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("making request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	responseBody, err := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var receiveResp ReceiveResponse
+	if err := json.NewDecoder(resp.Body).Decode(&receiveResp); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	messages := make([]Message, len(receiveResp.Data))
+	for i, msg := range receiveResp.Data {
+		messages[i] = Message{
+			AckID:  msg.AckID,
+			Record: msg.Data.Record,
+		}
+	}
+
+	return messages, nil
+}
+
+// Ack acknowledges messages as processed
+func (c *Client) Ack(ctx context.Context, consumerGroupID string, ackIDs []string) error {
+	url := fmt.Sprintf("%s/api/http_pull_consumers/%s/ack", c.baseURL, consumerGroupID)
+
+	body, err := json.Marshal(map[string][]string{
+		"ack_ids": ackIDs,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return fmt.Errorf("marshaling ack request: %w", err)
 	}
 
-	if resp.StatusCode >= 400 {
-		var errorResponse struct {
-			Summary          string                 `json:"summary"`
-			ValidationErrors map[string]interface{} `json:"validation_errors"`
-			Code             string                 `json:"code"`
-		}
-		if err := json.Unmarshal(responseBody, &errorResponse); err == nil {
-			if errorResponse.ValidationErrors != nil {
-				return nil, &ValidationError{
-					Summary:          errorResponse.Summary,
-					ValidationErrors: errorResponse.ValidationErrors,
-					Code:             errorResponse.Code,
-				}
-			}
-			return nil, fmt.Errorf("API error: %s", errorResponse.Summary)
-		}
-		return nil, fmt.Errorf("API error: status code %d", resp.StatusCode)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
 	}
 
-	var envelope struct {
-		Data json.RawMessage `json:"data"`
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("making request: %w", err)
 	}
-	if err := json.Unmarshal(responseBody, &envelope); err == nil && envelope.Data != nil {
-		return envelope.Data, nil
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	return responseBody, nil
+	return nil
 }
 
-// ValidationError represents an error that occurs during API validation
-type ValidationError struct {
-	Summary          string                 `json:"summary"`
-	ValidationErrors map[string]interface{} `json:"validation_errors"`
-	Code             string                 `json:"code"`
-}
+// Nack negative acknowledges messages, making them available for redelivery
+func (c *Client) Nack(ctx context.Context, consumerGroupID string, ackIDs []string) error {
+	url := fmt.Sprintf("%s/api/http_pull_consumers/%s/nack", c.baseURL, consumerGroupID)
 
-// Error implements the error interface for ValidationError
-func (ve *ValidationError) Error() string {
-	var parts []string
-	if ve.Summary != "" {
-		parts = append(parts, ve.Summary)
+	body, err := json.Marshal(map[string][]string{
+		"ack_ids": ackIDs,
+	})
+	if err != nil {
+		return fmt.Errorf("marshaling nack request: %w", err)
 	}
-	if len(ve.ValidationErrors) > 0 {
-		for key, value := range ve.ValidationErrors {
-			switch v := value.(type) {
-			case []interface{}:
-				for _, msg := range v {
-					parts = append(parts, fmt.Sprintf("%s: %v", key, msg))
-				}
-			case string:
-				parts = append(parts, fmt.Sprintf("%s: %s", key, v))
-			default:
-				parts = append(parts, fmt.Sprintf("%s: %v", key, v))
-			}
-		}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
 	}
-	if len(parts) == 0 {
-		return "An unknown validation error occurred"
+
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("making request: %w", err)
 	}
-	return strings.Join(parts, "; ")
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %w", err)
+	}
+
+	return nil
 }
 
-// IntPtr returns a pointer to the given int value.
-func IntPtr(i int) *int {
-	return &i
-}
-
-// StringPtr returns a pointer to the given string value.
-func StringPtr(s string) *string {
-	return &s
-}
-
-// BoolPtr returns a pointer to the given bool value.
-func BoolPtr(b bool) *bool {
-	return &b
+// Message represents a single message with its acknowledgment ID
+type Message struct {
+	AckID  string
+	Record json.RawMessage
 }
