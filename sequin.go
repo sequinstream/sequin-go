@@ -28,15 +28,20 @@ var _ SequinClient = (*Client)(nil)
 
 // ClientOptions configures the client behavior
 type ClientOptions struct {
+	Token      string        // API authentication token
 	BaseURL    string        // API base URL, defaults to "https://api.sequinstream.com/api"
 	HTTPClient *http.Client  // Custom HTTP client, optional
 	Timeout    time.Duration // HTTP client timeout, defaults to 30s
 }
 
 // NewClient creates a new Sequin client
-func NewClient(token string, opts *ClientOptions) *Client {
+func NewClient(opts *ClientOptions) *Client {
 	if opts == nil {
 		opts = &ClientOptions{}
+	}
+
+	if opts.Token == "" {
+		panic("token is required")
 	}
 
 	if opts.BaseURL == "" {
@@ -55,7 +60,7 @@ func NewClient(token string, opts *ClientOptions) *Client {
 
 	return &Client{
 		baseURL:    opts.BaseURL,
-		token:      token,
+		token:      opts.Token,
 		httpClient: opts.HTTPClient,
 	}
 }

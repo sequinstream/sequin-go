@@ -234,11 +234,6 @@ func (p *Processor) processDirectly(ctx context.Context) error {
 			p.opts.ErrorHandler(ctx, messagesCopy, err)
 			continue
 		}
-
-		// Exit after processing all messages in test mode
-		if len(messages) < p.opts.MaxBatchSize {
-			return nil
-		}
 	}
 }
 

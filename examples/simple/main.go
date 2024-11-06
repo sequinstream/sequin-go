@@ -40,7 +40,8 @@ func main() {
 	}
 
 	// Initialize Sequin client
-	client := sequin.NewClient(*token, &sequin.ClientOptions{
+	client := sequin.NewClient(&sequin.ClientOptions{
+		Token:   *token,
 		BaseURL: *baseURL,
 	})
 
