@@ -51,7 +51,7 @@ func NewClient(opts *ClientOptions) *Client {
 	if opts.HTTPClient == nil {
 		timeout := opts.Timeout
 		if timeout == 0 {
-			timeout = 30 * time.Second
+			timeout = 150 * time.Second
 		}
 		opts.HTTPClient = &http.Client{
 			Timeout: timeout,
@@ -77,8 +77,8 @@ type ReceiveResponse struct {
 
 // ReceiveParams represents parameters for the receive request
 type ReceiveParams struct {
-	BatchSize int `json:"batch_size,omitempty"`
-	WaitFor   int `json:"wait_for,omitempty"` // milliseconds
+	MaxBatchSize int `json:"max_batch_size,omitempty"`
+	WaitFor      int `json:"wait_for,omitempty"` // milliseconds
 }
 
 // Receive fetches messages from a consumer

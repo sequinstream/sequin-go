@@ -42,7 +42,7 @@ func (m *mockClient) Receive(ctx context.Context, consumerGroupID string, params
 
 	m.receiveCount++
 	if params != nil {
-		m.receiveBatchSizes = append(m.receiveBatchSizes, params.BatchSize)
+		m.receiveBatchSizes = append(m.receiveBatchSizes, params.MaxBatchSize)
 	}
 
 	// Return no more messages after all messages have been delivered
@@ -52,8 +52,8 @@ func (m *mockClient) Receive(ctx context.Context, consumerGroupID string, params
 
 	// Get batch size
 	batchSize := 1
-	if params != nil && params.BatchSize > 0 {
-		batchSize = params.BatchSize
+	if params != nil && params.MaxBatchSize > 0 {
+		batchSize = params.MaxBatchSize
 	}
 
 	// Calculate end index
