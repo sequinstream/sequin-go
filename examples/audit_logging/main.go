@@ -24,7 +24,7 @@ func main() {
 	dbUser := flag.String("db-user", "", "Database user")
 	dbPass := flag.String("db-password", "", "Database password")
 	dbName := flag.String("db-name", "", "Database name")
-	batchSize := flag.Int("batch-size", 100, "Maximum batch size for processing messages")
+	maxBatchSize := flag.Int("max-batch-size", 100, "Maximum batch size for processing messages")
 	userPermConsumer := flag.String("user-perm-consumer", "user-permissions-consumer", "Consumer group for user permissions")
 	subsConsumer := flag.String("subs-consumer", "subscriptions-consumer", "Consumer group for subscriptions")
 	flag.Parse()
@@ -101,7 +101,7 @@ func main() {
 				return nil
 			},
 			sequin.ProcessorOptions{
-				MaxBatchSize: *batchSize, // Control how many messages to process at once
+				MaxBatchSize: *maxBatchSize, // Control how many messages to process at once
 			},
 		)
 		if err != nil {
@@ -122,7 +122,7 @@ func main() {
 	}()
 
 	// Run all processors
-	log.Printf("Starting audit processors (batch size: %d)", *batchSize)
+	log.Printf("Starting audit processors (max batch size: %d)", *maxBatchSize)
 	errChan := make(chan error, len(processors))
 	for _, proc := range processors {
 		go func(p *sequin.Processor) {

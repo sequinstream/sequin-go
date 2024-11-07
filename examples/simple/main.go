@@ -17,7 +17,7 @@ func main() {
 	token := flag.String("token", "", "Sequin API token")
 	consumerGroup := flag.String("consumer-group", "", "Consumer Group name or ID")
 	outputFile := flag.String("output", "", "Output file path (optional, defaults to stdout)")
-	batchSize := flag.Int("batch-size", 10, "Maximum batch size for processing messages")
+	maxBatchSize := flag.Int("max-batch-size", 10, "Maximum batch size for processing messages")
 	baseURL := flag.String("base-url", "", "Sequin API base URL (optional, defaults to https://api.sequinstream.com/api)")
 	flag.Parse()
 
@@ -56,7 +56,7 @@ func main() {
 			return nil
 		},
 		sequin.ProcessorOptions{
-			MaxBatchSize: *batchSize,
+			MaxBatchSize: *maxBatchSize,
 		},
 	)
 	if err != nil {
@@ -77,7 +77,7 @@ func main() {
 	}()
 
 	// Run the processor
-	log.Printf("Starting consumer (batch size: %d)", *batchSize)
+	log.Printf("Starting consumer (max batch size: %d)", *maxBatchSize)
 	if err := processor.Run(ctx); err != nil && err != context.Canceled {
 		log.Fatalf("Processor failed: %v", err)
 	}

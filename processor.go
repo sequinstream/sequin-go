@@ -159,9 +159,8 @@ func (p *Processor) fetch(ctx context.Context) error {
 			return ctx.Err()
 		default:
 			messages, err := p.client.Receive(ctx, p.consumerGroup, &ReceiveParams{
-				BatchSize: p.opts.FetchBatchSize,
-				// Long polling not supported yet
-				// WaitFor:   30000, // 30 seconds long polling
+				MaxBatchSize: p.opts.FetchBatchSize,
+				WaitFor:      120000, // 2 minute long polling
 			})
 			if err != nil {
 				if ctx.Err() != nil {
@@ -199,9 +198,8 @@ func (p *Processor) processDirectly(ctx context.Context) error {
 		}
 
 		messages, err := p.client.Receive(ctx, p.consumerGroup, &ReceiveParams{
-			BatchSize: p.opts.MaxBatchSize,
-			// Long polling not supported yet
-			// WaitFor:   30000,
+			MaxBatchSize: p.opts.MaxBatchSize,
+			WaitFor:      120000, // 2 minute long polling
 		})
 		if err != nil {
 			if ctx.Err() != nil {
